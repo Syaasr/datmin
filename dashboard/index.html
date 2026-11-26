@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Dashboard kasir dan analisis keranjang belanja toko roti: rekomendasi upsell, paket bundling, dan perbandingan Apriori, FP-Growth, serta ECLAT." />
+  <title>Bread Basket: Dashboard Toko Roti</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23332319'/%3E%3Cpath d='M7 19c0-5 4-9 9-9s9 4 9 9v3H7v-3zm5-6.5L14 17m4-5.5L20 16' stroke='%23e8a86b' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Langsung ke konten utama</a>
+
+  <header class="masthead">
+    <div class="container masthead-inner">
+      <div class="brand-block">
+        <div class="brand-title-row">
+          <span class="brand-emblem" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path d="M4 15.5C4 11 7.6 7.5 12 7.5C16.4 7.5 20 11 20 15.5V18.5H4V15.5Z" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" />
+              <path d="M9 10.5L10.8 14.5M14 9.5L15.6 13.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
+            </svg>
+          </span>
+          <div>
+            <h1>Bread Basket Bakery</h1>
+            <p class="subtitle">Dashboard kasir &amp; pola pembelian pelanggan (Apriori, FP-Growth, ECLAT)</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="masthead-actions">
+        <span class="source-tag" id="kpiSource">Memuat data...</span>
+        <label class="btn btn-header" for="csvUpload" tabindex="0">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 11V3M8 3L5 6M8 3L11 6M2.5 12.5H13.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          Muat CSV
+        </label>
+        <input type="file" id="csvUpload" accept=".csv" hidden />
+      </div>
+    </div>
+
+    <div class="telemetry-bar">
+      <div class="container telemetry-grid" aria-label="Ringkasan metrik toko roti">
+        <div class="telemetry-cell">
+          <span class="telemetry-label">Aturan aktif</span>
+          <strong class="telemetry-value mono" id="kpiTotal">...</strong>
+        </div>
+        <div class="telemetry-cell">
+          <span class="telemetry-label">Pasangan positif (lift &gt; 1)</span>
+          <strong class="telemetry-value mono" id="kpiPositive">...</strong>
+        </div>
+        <div class="telemetry-cell">
+          <span class="telemetry-label">Menu di etalase</span>
+          <strong class="telemetry-value mono" id="kpiItems">...</strong>
+        </div>
+        <div class="telemetry-cell telemetry-cell-wide">
+          <span class="telemetry-label">Pasangan terkuat</span>
+          <div class="telemetry-highlight">
+            <strong class="telemetry-value mono accent-text" id="kpiMaxLift">...</strong>
+            <span class="telemetry-rule" id="kpiTopRule">Memuat aturan...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+    <div id="statusBanner" class="status-banner" role="status" aria-live="polite" hidden></div>
+  </div>
+
+  <main id="main-content" class="container main-shell">
+    <nav class="tabs" role="tablist" aria-label="Bagian dashboard toko roti">
+      <button class="tab active" id="tab-btn-recommender" data-tab="recommender" role="tab" aria-selected="true" aria-controls="tab-recommender" tabindex="0">
+        Simulasi kasir
+      </button>
+      <button class="tab" id="tab-btn-bundling" data-tab="bundling" role="tab" aria-selected="false" aria-controls="tab-bundling" tabindex="-1">
+        Paket bundling
+      </button>
+      <button class="tab" id="tab-btn-rules" data-tab="rules" role="tab" aria-selected="false" aria-controls="tab-rules" tabindex="-1">
+        Daftar aturan
+      </button>
+      <button class="tab" id="tab-btn-benchmark" data-tab="benchmark" role="tab" aria-selected="false" aria-controls="tab-benchmark" tabindex="-1">
+        Benchmark algoritma
+      </button>
+    </nav>
+
+    <!-- Tab 1: Simulasi Kasir -->
+    <section id="tab-recommender" class="tab-panel active" role="tabpanel" aria-labelledby="tab-btn-recommender">
+      <div class="recommender-grid">
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Etalase menu toko roti</h2>
+              <p class="muted">Pilih pesanan pelanggan untuk memunculkan saran produk pendamping di slip kasir.</p>
+            </div>
+            <button id="clearCart" class="btn btn-tertiary" type="button">Reset pesanan</button>
+          </div>
+
+          <div class="preset-bar" aria-label="Pesanan populer">
+            <span class="preset-label">Coba cepat:</span>
+            <div class="preset-list">
+              <button class="preset-btn" data-preset="Juice" type="button">Juice</button>
+              <button class="preset-btn" data-preset="Soup" type="button">Soup</button>
+              <button class="preset-btn" data-preset="Coke" type="button">Coke</button>
+              <button class="preset-btn" data-preset="Coffee,Juice" type="button">Coffee + Juice</button>
+              <button class="preset-btn" data-preset="Coffee" type="button">Coffee</button>
+            </div>
+          </div>
+
+          <div class="category-bar" id="categoryBar" role="group" aria-label="Kategori menu toko roti">
+            <button class="cat-btn active" data-cat="all" type="button">Semua</button>
+            <button class="cat-btn" data-cat="drink" type="button">Kopi &amp; Minuman</button>
+            <button class="cat-btn" data-cat="bread" type="button">Roti &amp; Pastry</button>
+            <button class="cat-btn" data-cat="sweet" type="button">Kue &amp; Manis</button>
+            <button class="cat-btn" data-cat="savory" type="button">Makanan Gurih</button>
+          </div>
+
+          <div class="search-field">
+            <label class="field-label" for="itemSearch">Cari nama menu</label>
+            <input type="search" id="itemSearch" class="input" placeholder="Ketik nama menu, mis. Sandwich atau Cake" autocomplete="off" />
+          </div>
+
+          <div class="item-picker" id="itemPicker" role="group" aria-label="Daftar menu">
+            <p class="muted">Memuat daftar menu dari aturan asosiasi...</p>
+          </div>
+        </div>
+
+        <aside class="receipt-panel" aria-label="Slip pesanan dan saran upsell">
+          <div class="receipt-brand">
+            <span class="receipt-kicker">Slip pesanan kasir</span>
+            <span class="receipt-count mono" id="cartCount">0 item</span>
+          </div>
+
+          <div class="cart-section">
+            <span class="field-label">Pesanan saat ini</span>
+            <div class="cart-tray" id="cartBox" aria-live="polite">
+              <span class="muted">Belum ada menu dipilih.</span>
+            </div>
+          </div>
+
+          <div class="receipt-divider" aria-hidden="true"></div>
+
+          <div class="receipt-head">
+            <div>
+              <h2>Saran tawarkan ke pelanggan</h2>
+              <p class="muted" id="recSubline">Menunggu pilihan pesanan</p>
+            </div>
+            <div class="receipt-controls">
+              <div class="mini-field">
+                <label class="field-label" for="recMinLift">Min. lift</label>
+                <input type="number" id="recMinLift" class="input input-mono" value="1.0" min="0" max="5" step="0.1" />
+              </div>
+              <div class="mini-field">
+                <label class="field-label" for="recTopK">Top K</label>
+                <input type="number" id="recTopK" class="input input-mono" value="5" min="1" max="20" step="1" />
+              </div>
+            </div>
+          </div>
+
+          <div id="recResults" class="rec-list" aria-live="polite">
+            <div class="empty-block">
+              <p class="empty-title">Memuat data aturan...</p>
+              <p class="muted">Saran produk pendamping akan tersedia setelah data selesai dimuat.</p>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Tab 2: Paket Bundling -->
+    <section id="tab-bundling" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-bundling">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Rekomendasi paket bundling etalase</h2>
+            <p class="muted">10 pasangan menu 1-ke-1 dengan asosiasi terkuat (lift &gt; 1). Klik salah satu paket untuk langsung mencobanya di simulasi kasir.</p>
+          </div>
+        </div>
+        <div id="bundlingList" class="bundling-list">
+          <p class="muted">Memuat kandidat paket bundling...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 3: Daftar Aturan -->
+    <section id="tab-rules" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-rules">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Daftar aturan asosiasi menu</h2>
+            <p class="muted">Seluruh aturan dari hasil mining toko roti (support &ge; 0,005 dan confidence &ge; 0,10).</p>
+          </div>
+          <span class="count-tag mono" id="rulesCountLabel">Memuat...</span>
+        </div>
+
+        <div class="filter-bar">
+          <div class="filter-field">
+            <label class="field-label" for="ruleSearch">Cari menu (membeli atau rekomendasi)</label>
+            <input type="search" id="ruleSearch" class="input" placeholder="Ketik nama menu, mis. Tea atau Cookies" />
+          </div>
+          <div class="filter-field">
+            <label class="field-label" for="filterConf">
+              Min. confidence: <span class="mono" id="valConf">0.10</span>
+            </label>
+            <input type="range" id="filterConf" min="0.1" max="0.85" step="0.05" value="0.1" />
+          </div>
+          <div class="filter-field">
+            <label class="field-label" for="filterLift">
+              Min. lift: <span class="mono" id="valLift">1.00</span>
+            </label>
+            <input type="range" id="filterLift" min="0" max="3.2" step="0.1" value="1.0" />
+          </div>
+          <div class="filter-field">
+            <label class="field-label" for="sortBy">Urutkan berdasarkan</label>
+            <select id="sortBy" class="input">
+              <option value="lift">Lift tertinggi</option>
+              <option value="confidence">Confidence tertinggi</option>
+              <option value="support">Support tertinggi</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Jika pelanggan membeli</th>
+                <th>Tawarkan juga</th>
+                <th class="num">Support</th>
+                <th class="num">Confidence</th>
+                <th class="num">Lift</th>
+              </tr>
+            </thead>
+            <tbody id="rulesTableBody">
+              <tr><td colspan="5" class="muted">Memuat daftar aturan asosiasi...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 4: Benchmark Algoritma -->
+    <section id="tab-benchmark" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-benchmark">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Perbandingan waktu eksekusi: Apriori, FP-Growth &amp; ECLAT (From Scratch)</h2>
+            <p class="muted">Implementasi Python murni tanpa library mining, rata-rata 5 kali pengujian pada 5.495 transaksi multi-item &times; 81 produk. Frequent itemset dan jumlah aturan ketiga algoritma 100% identik.</p>
+          </div>
+          <div class="legend-row" aria-label="Legenda algoritma">
+            <span class="legend-item"><i class="swatch swatch-apriori"></i>Apriori</span>
+            <span class="legend-item"><i class="swatch swatch-fp"></i>FP-Growth</span>
+            <span class="legend-item"><i class="swatch swatch-eclat"></i>ECLAT</span>
+          </div>
+        </div>
+
+        <div class="bench-visual" id="benchmarkVisual" aria-label="Grafik batang waktu eksekusi per nilai min_support"></div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="num">min_support</th>
+                <th class="num">Frequent itemset</th>
+                <th class="num">Apriori (dtk)</th>
+                <th class="num">FP-Growth (dtk)</th>
+                <th class="num">ECLAT (dtk)</th>
+                <th>Tercepat</th>
+              </tr>
+            </thead>
+            <tbody id="benchmarkBody"></tbody>
+          </table>
+        </div>
+
+        <div class="bench-summary" id="benchSummary"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <span>Bread Basket Bakery &middot; 5.495 transaksi multi-item</span>
+      <span>Market Basket Analysis (Apriori, FP-Growth, ECLAT)</span>
+    </div>
+  </footer>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
